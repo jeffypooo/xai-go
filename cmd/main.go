@@ -2,17 +2,28 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"github.com/jeffypooo/xai-go/pkg/xai"
 	"log"
 	"os"
 )
 
+const APIKeyEnvVarName = "XAI_KEY"
+
 func main() {
-	if os.Getenv("X_API_KEY") == "" {
-		log.Fatal("X_API_KEY environment variable is required")
+	apiKey := os.Getenv(APIKeyEnvVarName)
+	model := "grok-beta"
+
+	flag.StringVar(&apiKey, "key", apiKey, "API key for xAI, defaults to XAI_KEY environment variable")
+	flag.StringVar(&model, "model", model, "Model to use for chat, defaults to 'grok-beta'")
+	flag.Parse()
+
+	if apiKey == "" {
+		panic("API key is required. Pass via -key flag or set XAI_KEY environment variable")
 	}
-	client := xai.NewClient(os.Getenv("X_API_KEY"))
+
+	client := xai.NewClient(apiKey, model)
 
 	// system prompt
 	systemMessage := &xai.ChatMessage{

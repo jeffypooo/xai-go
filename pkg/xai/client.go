@@ -9,20 +9,32 @@ import (
 	"net/url"
 )
 
-type Client struct {
+type Client interface {
+	GetEmbeddingModels() ([]*Model, error)
+	GetLanguageModels() ([]*Model, error)
+	GetModels() ([]*Model, error)
+	GetChatCompletion(messages []*ChatMessage) (*ChatCompletionResponse, error)
+}
+
+type DefaultClient struct {
 	ApiKey string
+	Model  string
 	client *http.Client
 }
 
-func NewClient(apiKey string) *Client {
-	return &Client{
-		ApiKey: apiKey,
+func NewClient(
+	key string,
+	model string,
+) Client {
+	return &DefaultClient{
+		ApiKey: key,
+		Model:  model,
 		client: &http.Client{},
 	}
 }
 
-func (x *Client) GetEmbeddingModels() ([]*Model, error) {
-	resp, err := x.client.Do(xAIGet(x.ApiKey, "embedding-models"))
+func (x *DefaultClient) GetEmbeddingModels() ([]*Model, error) {
+	resp, err := x.client.Do(get(x.ApiKey, "embedding-models"))
 	if err != nil {
 		return nil, err
 	}
@@ -40,8 +52,8 @@ func (x *Client) GetEmbeddingModels() ([]*Model, error) {
 	return modelsResp.Models, nil
 }
 
-func (x *Client) GetLanguageModels() ([]*Model, error) {
-	resp, err := x.client.Do(xAIGet(x.ApiKey, "language-models"))
+func (x *DefaultClient) GetLanguageModels() ([]*Model, error) {
+	resp, err := x.client.Do(get(x.ApiKey, "language-models"))
 	if err != nil {
 		return nil, err
 	}
@@ -59,8 +71,8 @@ func (x *Client) GetLanguageModels() ([]*Model, error) {
 	return modelsResp.Models, nil
 }
 
-func (x *Client) GetModels() ([]*Model, error) {
-	resp, err := x.client.Do(xAIGet(x.ApiKey, "models"))
+func (x *DefaultClient) GetModels() ([]*Model, error) {
+	resp, err := x.client.Do(get(x.ApiKey, "models"))
 	if err != nil {
 		return nil, err
 	}
@@ -78,19 +90,16 @@ func (x *Client) GetModels() ([]*Model, error) {
 	return modelsResp.Data, nil
 }
 
-func (x *Client) GetChatCompletion(
+func (x *DefaultClient) GetChatCompletion(
 	messages []*ChatMessage,
 ) (*ChatCompletionResponse, error) {
-	completionRequest := NewChatCompletionRequest(
-		"grok-beta",
-		messages,
-	)
+	completionRequest := NewChatCompletionRequest(x.Model, messages)
 	completionRequestData, err := json.Marshal(completionRequest)
 	if err != nil {
 		return nil, err
 	}
 	//prettyPrintRequest(completionRequestData)
-	resp, err := x.client.Do(xAIPost(x.ApiKey, "chat/completions", completionRequestData))
+	resp, err := x.client.Do(post(x.ApiKey, "chat/completions", completionRequestData))
 	if err != nil {
 		return nil, err
 	}
@@ -108,104 +117,7 @@ func (x *Client) GetChatCompletion(
 	return &completionResp, nil
 }
 
-type ListSpecificModelsResponse struct {
-	Models []*Model `json:"models"`
-}
-
-type ListModelsResponse struct {
-	Object string   `json:"object"`
-	Data   []*Model `json:"data"`
-}
-
-type Model struct {
-	Created               int64    `json:"created"`
-	ID                    string   `json:"id"`
-	InputModalities       []string `json:"input_modalities"`
-	Object                string   `json:"object"`
-	OwnedBy               string   `json:"owned_by"`
-	PromptImageTokenPrice int      `json:"prompt_image_token_price"`
-	PromptTextTokenPrice  int      `json:"prompt_text_token_price"`
-	Version               string   `json:"version"`
-}
-
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ChatCompletionRequest struct {
-	FrequencyPenalty int                `json:"frequency_penalty,omitempty"`
-	LogitBias        map[string]float64 `json:"logit_bias,omitempty"`
-	Logprobs         bool               `json:"logprobs,omitempty"`
-	MaxTokens        int                `json:"max_tokens,omitempty"`
-	Messages         []*ChatMessage     `json:"messages"`
-	Model            string             `json:"model"`
-	N                int                `json:"n,omitempty"`
-	PresencePenalty  int                `json:"presence_penalty,omitempty"`
-	ResponseFormat   string             `json:"response_format,omitempty"`
-	Seed             int                `json:"seed,omitempty"`
-	Stop             []string           `json:"stop,omitempty"`
-	Stream           bool               `json:"stream,omitempty"`
-	StreamOptions    string             `json:"stream_options,omitempty"`
-}
-
-func NewChatCompletionRequest(
-	model string,
-	messages []*ChatMessage,
-) *ChatCompletionRequest {
-	return &ChatCompletionRequest{
-		MaxTokens: 500,
-		Messages:  messages,
-		Model:     model,
-	}
-}
-
-type ChatChoice struct {
-	FinishReason string       `json:"finish_reason"`
-	Index        int          `json:"index"`
-	Message      *ChatMessage `json:"message"`
-}
-
-type Usage struct {
-	CompletionTokens int `json:"completion_tokens"`
-	PromptTokens     int `json:"prompt_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-}
-
-type ChatCompletionResponse struct {
-	Choices []*ChatChoice `json:"choices"`
-	Created int64         `json:"created"`
-	ID      string        `json:"id"`
-	Model   string        `json:"model"`
-	Object  string        `json:"object"`
-	Usage   *Usage        `json:"usage"`
-}
-
-func xAIGet(
-	apiKey string,
-	endpoint string,
-) *http.Request {
-	return &http.Request{
-		Method: http.MethodGet,
-		URL:    xAIRequestURL(endpoint),
-		Header: xAIRequestHeaders(apiKey),
-	}
-}
-
-func xAIPost(
-	apiKey string,
-	endpoint string,
-	body []byte,
-) *http.Request {
-	return &http.Request{
-		Method: http.MethodPost,
-		URL:    xAIRequestURL(endpoint),
-		Header: xAIRequestHeaders(apiKey),
-		Body:   io.NopCloser(bytes.NewReader(body)),
-	}
-}
-
-func xAIRequestURL(endpoint string) *url.URL {
+func requestURL(endpoint string) *url.URL {
 	return &url.URL{
 		Scheme: "https",
 		Host:   "api.x.ai",
@@ -213,11 +125,48 @@ func xAIRequestURL(endpoint string) *url.URL {
 	}
 }
 
-func xAIRequestHeaders(apiKey string) http.Header {
+func requestHeaders(apiKey string) http.Header {
 	return http.Header{
 		"Authorization": []string{"Bearer " + apiKey},
 		"Content-Type":  []string{"application/json"},
 	}
+}
+
+func apiRequest(
+	apiKey string,
+	method string,
+	endpoint string,
+	body *[]byte,
+) *http.Request {
+	if body == nil {
+		return &http.Request{
+			Method: method,
+			URL:    requestURL(endpoint),
+			Header: requestHeaders(apiKey),
+		}
+	} else {
+		return &http.Request{
+			Method: method,
+			URL:    requestURL(endpoint),
+			Header: requestHeaders(apiKey),
+			Body:   io.NopCloser(bytes.NewReader(*body)),
+		}
+	}
+}
+
+func get(
+	apiKey string,
+	endpoint string,
+) *http.Request {
+	return apiRequest(apiKey, http.MethodGet, endpoint, nil)
+}
+
+func post(
+	apiKey string,
+	endpoint string,
+	body []byte,
+) *http.Request {
+	return apiRequest(apiKey, http.MethodPost, endpoint, &body)
 }
 
 func prettyPrintResponse(data []byte) {
